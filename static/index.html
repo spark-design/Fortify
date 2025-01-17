@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fortify WAF Rule Generator</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Fortify WAF Rule Generator</h1>
+    <form id="apiForm">
+        <label for="apiId">API Gateway ID:</label>
+        <input type="text" id="apiId" name="apiId" required>
+        <button type="submit">Generate WAF Rules</button>
+    </form>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('apiForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const apiId = document.getElementById('apiId').value;
+            try {
+                const response = await axios.post('/api/generate-rules', { api_id: apiId });
+                document.getElementById('result').innerHTML = '<pre>' + JSON.stringify(response.data, null, 2) + '</pre>';
+            } catch (error) {
+                document.getElementById('result').innerHTML = 'Error: ' + error.message;
+            }
+        });
+    </script>
+</body>
+</html>
