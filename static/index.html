@@ -9,8 +9,8 @@
 <body>
     <h1>Fortify WAF Rule Generator</h1>
     <form id="apiForm">
-        <label for="apiId">API Gateway ID:</label>
-        <input type="text" id="apiId" name="apiId" required>
+        <label for="apiArn">API Gateway ARN:</label>
+        <input type="text" id="apiArn" name="apiArn" required>
         <button type="submit">Generate WAF Rules</button>
     </form>
     <div id="result"></div>
@@ -18,12 +18,13 @@
     <script>
         document.getElementById('apiForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const apiId = document.getElementById('apiId').value;
+            const apiArn = document.getElementById('apiArn').value;
             try {
-                const response = await axios.post('/api/generate-rules', { api_id: apiId });
+                const response = await axios.post('/api/generate-rules', { api_arn: apiArn });
                 document.getElementById('result').innerHTML = '<pre>' + JSON.stringify(response.data, null, 2) + '</pre>';
             } catch (error) {
-                document.getElementById('result').innerHTML = 'Error: ' + error.message;
+                console.error('Full error:', error);
+                document.getElementById('result').innerHTML = 'Error: ' + (error.response?.data?.error || error.message);
             }
         });
     </script>
