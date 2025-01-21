@@ -3,47 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fortify WAF Rule Generator</title>
+    <title>Amazon Fortify WAF Rule Generator</title>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
-        h1 { color: #333; }
-        form { margin-bottom: 20px; }
-        label { display: block; margin-top: 10px; }
-        input[type="text"], textarea { width: 100%; padding: 8px; margin-top: 5px; }
-        button { padding: 10px 15px; background-color: #4CAF50; color: white; border: none; cursor: pointer; margin-top: 10px; }
-        #result { background-color: #f4f4f4; padding: 15px; border-radius: 5px; white-space: pre-wrap; }
-        .hidden { display: none; }
+        :root {
+            --amazon-orange: #FF9900;
+            --amazon-dark: #131A22;
+            --amazon-blue: #232F3E;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f3f3f3;
+            color: var(--amazon-dark);
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: var(--amazon-blue);
+            border-bottom: 2px solid var(--amazon-orange);
+            padding-bottom: 10px;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: var(--amazon-orange);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 20px;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #e88a00;
+        }
+        #result {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+        .hidden {
+            display: none;
+        }
+        .radio-group {
+            margin-bottom: 15px;
+        }
+        .radio-group label {
+            display: inline-block;
+            margin-right: 20px;
+        }
+        .amazon-logo {
+            width: 100px;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
-    <h1>Fortify WAF Rule Generator</h1>
-    <form id="apiForm">
-        <div>
-            <label>
-                <input type="radio" name="inputType" value="arn" checked> Use API Gateway ARN
-            </label>
-            <label>
-                <input type="radio" name="inputType" value="openapi"> Use OpenAPI Specification
-            </label>
-        </div>
+    <div class="container">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" alt="Amazon Logo" class="amazon-logo">
+        <h1>Fortify WAF Rule Generator</h1>
+        <form id="apiForm">
+            <div class="radio-group">
+                <label>
+                    <input type="radio" name="inputType" value="arn" checked> Use API Gateway ARN
+                </label>
+                <label>
+                    <input type="radio" name="inputType" value="openapi"> Use OpenAPI Specification
+                </label>
+            </div>
 
-        <div id="arnInput">
-            <label for="apiArn">API Gateway ARN:</label>
-            <input type="text" id="apiArn" name="apiArn">
-        </div>
+            <div id="arnInput">
+                <label for="apiArn">API Gateway ARN:</label>
+                <input type="text" id="apiArn" name="apiArn" placeholder="arn:aws:execute-api:region:account-id:api-id">
+            </div>
 
-        <div id="openApiInput" class="hidden">
-            <label for="openApiSpec">OpenAPI Specification:</label>
-            <textarea id="openApiSpec" name="openApiSpec" rows="10"></textarea>
-        </div>
+            <div id="openApiInput" class="hidden">
+                <label for="openApiSpec">OpenAPI Specification:</label>
+                <textarea id="openApiSpec" name="openApiSpec" rows="10" placeholder="Paste your OpenAPI specification here"></textarea>
+            </div>
 
-        <label for="apiContext">Additional Context (e.g., "It runs a financial database"):</label>
-        <textarea id="apiContext" name="apiContext" rows="4"></textarea>
+            <label for="apiContext">Additional Context:</label>
+            <textarea id="apiContext" name="apiContext" rows="4" placeholder="e.g., 'This API runs a financial database'"></textarea>
 
-        <button type="submit">Generate WAF Rules</button>
-    </form>
-    <div id="result"></div>
+            <button type="submit">Generate WAF Rules</button>
+        </form>
+        <div id="result"></div>
+    </div>
 
     <script>
         const arnInput = document.getElementById('arnInput');
@@ -67,7 +139,7 @@
             e.preventDefault();
             const inputType = document.querySelector('input[name="inputType"]:checked').value;
             const apiContext = document.getElementById('apiContext').value;
-            let payload;
+            let payload = { input_type: inputType, context: apiContext };
 
             if (inputType === 'arn') {
                 const apiArn = document.getElementById('apiArn').value;
@@ -75,17 +147,18 @@
                     resultDiv.innerHTML = 'Error: API Gateway ARN is required when using ARN input type.';
                     return;
                 }
-                payload = { input_type: 'arn', api_arn: apiArn, context: apiContext };
+                payload.api_arn = apiArn;
             } else {
                 const openApiSpec = document.getElementById('openApiSpec').value;
                 if (!openApiSpec) {
                     resultDiv.innerHTML = 'Error: OpenAPI Specification is required when using OpenAPI input type.';
                     return;
                 }
-                payload = { input_type: 'openapi', open_api_spec: openApiSpec, context: apiContext };
+                payload.open_api_spec = openApiSpec;
             }
 
             try {
+                resultDiv.innerHTML = 'Generating rules...';
                 const response = await axios.post('/api/generate-rules', payload);
                 resultDiv.innerHTML = '<pre>' + JSON.stringify(response.data, null, 2) + '</pre>';
             } catch (error) {
