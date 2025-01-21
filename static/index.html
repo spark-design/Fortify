@@ -6,33 +6,91 @@
     <title>Fortify WAF Rule Generator</title>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; }
+        body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; }
         h1 { color: #333; }
         form { margin-bottom: 20px; }
-        input[type="text"] { width: 300px; padding: 5px; }
-        button { padding: 5px 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
-        #result { background-color: #f4f4f4; padding: 10px; border-radius: 5px; }
+        label { display: block; margin-top: 10px; }
+        input[type="text"], textarea { width: 100%; padding: 8px; margin-top: 5px; }
+        button { padding: 10px 15px; background-color: #4CAF50; color: white; border: none; cursor: pointer; margin-top: 10px; }
+        #result { background-color: #f4f4f4; padding: 15px; border-radius: 5px; white-space: pre-wrap; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
     <h1>Fortify WAF Rule Generator</h1>
     <form id="apiForm">
-        <label for="apiArn">API Gateway ARN:</label>
-        <input type="text" id="apiArn" name="apiArn" required>
+        <div>
+            <label>
+                <input type="radio" name="inputType" value="arn" checked> Use API Gateway ARN
+            </label>
+            <label>
+                <input type="radio" name="inputType" value="openapi"> Use OpenAPI Specification
+            </label>
+        </div>
+
+        <div id="arnInput">
+            <label for="apiArn">API Gateway ARN:</label>
+            <input type="text" id="apiArn" name="apiArn">
+        </div>
+
+        <div id="openApiInput" class="hidden">
+            <label for="openApiSpec">OpenAPI Specification:</label>
+            <textarea id="openApiSpec" name="openApiSpec" rows="10"></textarea>
+        </div>
+
+        <label for="apiContext">Additional Context (e.g., "It runs a financial database"):</label>
+        <textarea id="apiContext" name="apiContext" rows="4"></textarea>
+
         <button type="submit">Generate WAF Rules</button>
     </form>
     <div id="result"></div>
 
     <script>
-        document.getElementById('apiForm').addEventListener('submit', async (e) => {
+        const arnInput = document.getElementById('arnInput');
+        const openApiInput = document.getElementById('openApiInput');
+        const apiForm = document.getElementById('apiForm');
+        const resultDiv = document.getElementById('result');
+
+        document.querySelectorAll('input[name="inputType"]').forEach((radio) => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.value === 'arn') {
+                    arnInput.classList.remove('hidden');
+                    openApiInput.classList.add('hidden');
+                } else {
+                    arnInput.classList.add('hidden');
+                    openApiInput.classList.remove('hidden');
+                }
+            });
+        });
+
+        apiForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const apiArn = document.getElementById('apiArn').value;
+            const inputType = document.querySelector('input[name="inputType"]:checked').value;
+            const apiContext = document.getElementById('apiContext').value;
+            let payload;
+
+            if (inputType === 'arn') {
+                const apiArn = document.getElementById('apiArn').value;
+                if (!apiArn) {
+                    resultDiv.innerHTML = 'Error: API Gateway ARN is required when using ARN input type.';
+                    return;
+                }
+                payload = { input_type: 'arn', api_arn: apiArn, context: apiContext };
+            } else {
+                const openApiSpec = document.getElementById('openApiSpec').value;
+                if (!openApiSpec) {
+                    resultDiv.innerHTML = 'Error: OpenAPI Specification is required when using OpenAPI input type.';
+                    return;
+                }
+                payload = { input_type: 'openapi', open_api_spec: openApiSpec, context: apiContext };
+            }
+
             try {
-                const response = await axios.post('/api/generate-rules', { api_arn: apiArn });
-                document.getElementById('result').innerHTML = '<pre>' + JSON.stringify(response.data, null, 2) + '</pre>';
+                const response = await axios.post('/api/generate-rules', payload);
+                resultDiv.innerHTML = '<pre>' + JSON.stringify(response.data, null, 2) + '</pre>';
             } catch (error) {
                 console.error('Full error:', error);
-                document.getElementById('result').innerHTML = 'Error: ' + (error.response?.data?.error || error.message);
+                resultDiv.innerHTML = 'Error: ' + (error.response?.data?.error || error.message);
             }
         });
     </script>
