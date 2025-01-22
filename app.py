@@ -1,239 +1,122 @@
-import json
-import boto3
-import logging
-import numpy as np
 from flask import Flask, jsonify, request, send_from_directory
+import boto3
+import json
+import logging
 import re
-from botocore.exceptions import ClientError
-import yaml
-
 
 app = Flask(__name__, static_url_path='')
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_embedding(text):
-    bedrock = boto3.client('bedrock-runtime', region_name='us-east-2')
-    response = bedrock.invoke_model(
-        modelId='amazon.titan-embed-text-v2:0',
-        contentType='application/json',
-        accept='application/json',
-        body=json.dumps({"inputText": text})
-    )
-    embedding = json.loads(response['body'].read())['embedding']
-    return embedding
+REGION = "us-east-2"  # You can also use "us-east-1" or "us-west-2" based on your preference
+MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"  # Updated to use the Inference Profile ID
 
-def cosine_similarity(a, b):
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-def categorize_endpoint(path, method):
-    embedding = get_embedding(f"{path} {method}")
-    categories = {
-        "user_management": get_embedding("user management authentication"),
-        "data_access": get_embedding("data retrieval database access"),
-        "admin_operations": get_embedding("admin operations management"),
-        "public_content": get_embedding("public content retrieval"),
-    }
-    similarities = {k: cosine_similarity(embedding, v) for k, v in categories.items()}
-    return max(similarities, key=similarities.get)
-
-def generate_ai_enhanced_waf_rules(api_details, resources):
-    rules = []
-    for resource in resources['items']:
-        path = resource['path']
-        if 'resourceMethods' in resource:
-            for method in resource['resourceMethods']:
-                category = categorize_endpoint(path, method)
-                
-                rules.append({
-                    "name": f"Rule for {path} - {method}",
-                    "action": "ALLOW",
-                    "condition": f"Path is {path} and method is {method}"
-                })
-                
-                if category == "user_management":
-                    rules.append({
-                        "name": f"Auth Protection for {path}",
-                        "action": "BLOCK",
-                        "condition": f"Suspicious auth patterns detected for {path}"
-                    })
-                elif category == "data_access":
-                    rules.append({
-                        "name": f"Data Protection for {path}",
-                        "action": "BLOCK",
-                        "condition": f"Unusual data access patterns detected for {path}"
-                    })
-                elif category == "admin_operations":
-                    rules.append({
-                        "name": f"Admin Protection for {path}",
-                        "action": "BLOCK",
-                        "condition": f"Unauthorized admin access attempt on {path}"
-                    })
-                
-                if method == 'POST':
-                    rules.append({
-                        "name": f"Rate Limit for {path} - POST",
-                        "action": "BLOCK",
-                        "condition": f"More than 100 requests per 5 minutes from an IP for POST on {path}"
-                    })
+def get_claude_response(prompt):
+    bedrock_runtime = boto3.client('bedrock-runtime', region_name=REGION)
     
-    # Add some general security rules
-    rules.extend([
-        {
-            "name": "SQL Injection Protection",
-            "action": "BLOCK",
-            "condition": "SQL Injection patterns detected in request parameters"
-        },
-        {
-            "name": "Cross-Site Scripting (XSS) Protection",
-            "action": "BLOCK",
-            "condition": "XSS patterns detected in request parameters"
-        },
-        {
-            "name": "IP Reputation Check",
-            "action": "BLOCK",
-            "condition": "Request comes from an IP with bad reputation"
-        }
-    ])
-    
-    return rules
+    body = json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 2000,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    })
+
+    try:
+        response = bedrock_runtime.invoke_model(
+            modelId=MODEL_ID,
+            contentType="application/json",
+            accept="application/json",
+            body=body
+        )
+
+        response_body = json.loads(response['body'].read())
+        return response_body['content'][0]['text']
+    except Exception as e:
+        logger.error(f"Error invoking model: {str(e)}")
+        raise
 
 @app.route('/')
 def home():
     return send_from_directory('static', 'index.html')
 
-def generate_rules_from_openapi(openapi_spec):
-    try:
-        # Parse the OpenAPI spec
-        spec = yaml.safe_load(openapi_spec)
-        
-        rules = []
-        for path, path_item in spec['paths'].items():
-            for method, operation in path_item.items():
-                category = categorize_endpoint(path, method)
+def generate_rules_from_openapi(openapi_spec, additional_context):
+    prompt = f"""
+    You are a security engineer that works at AWS. Your job is to create me a WAF ACL rules in JSON based upon a OpenAPI configuration and best practices. The most important rules that should be added as a baseline for all generated rules are the baseline rule groups, IP reputation rule group and the Rate based rule group. Do not add rules other than what are listed as part of the baseline, IP reputation, and rate-based group. The output should also be based on any compliance standards or tech stacks that are relevant to the API. All rules should follow a standard naming scheme. For each group, select the top most 3 rules that are important to the given OpenAPI context. Each rule should follow the following format:
 
-                rules.append({
-                    "name": f"Rule for {path} - {method.upper()}",
-                    "action": "ALLOW",
-                    "condition": f"Path is {path} and method is {method.upper()}"
-                })
 
-                if category == "user_management":
-                    rules.append({
-                        "name": f"Auth Protection for {path}",
-                        "action": "BLOCK",
-                        "condition": f"Suspicious auth patterns detected for {path}"
-                    })
-                elif category == "data_access":
-                    rules.append({
-                        "name": f"Data Protection for {path}",
-                        "action": "BLOCK",
-                        "condition": f"Unusual data access patterns detected for {path}"
-                    })
-                elif category == "admin_operations":
-                    rules.append({
-                        "name": f"Admin Protection for {path}",
-                        "action": "BLOCK",
-                        "condition": f"Unauthorized admin access attempt on {path}"
-                    })
+    {{
+        "Name": "CompanyName-RuleName",
+        "Priority": integer,
+        "OverrideAction": {{
+        "None": {{}}
+        }},
+        "Statement": {{
+        "ManagedRuleGroupStatement": {{
+        "VendorName": "AWS",
+        "Name": string (example: name_of_AWS_managed_rule_set),
+        "ExcludedRules": []
+        }}
+        }},
+        "VisibilityConfig": {{
+        "SampledRequestsEnabled": boolean,
+        "CloudWatchMetricsEnabled": boolean,
+        "MetricName": "CompanyName-RuleName"
+        }}
+    }}
 
-                if method.upper() == 'POST':
-                    rules.append({
-                        "name": f"Rate Limit for {path} - POST",
-                        "action": "BLOCK",
-                        "condition": f"More than 100 requests per 5 minutes from an IP for POST on {path}"
-                    })
+    Here's the OpenAPI specification to analyze:
 
-        # Add general security rules
-        rules.extend([
-            {
-                "name": "SQL Injection Protection",
-                "action": "BLOCK",
-                "condition": "SQL Injection patterns detected in request parameters"
-            },
-            {
-                "name": "Cross-Site Scripting (XSS) Protection",
-                "action": "BLOCK",
-                "condition": "XSS patterns detected in request parameters"
-            },
-            {
-                "name": "IP Reputation Check",
-                "action": "BLOCK",
-                "condition": "Request comes from an IP with bad reputation"
-            }
-        ])
+    {openapi_spec}
 
-        return rules
-    except Exception as e:
-        logger.error(f"Error generating WAF rules from OpenAPI spec: {str(e)}", exc_info=True)
-        raise
+    Additional context about the API:
+
+    {additional_context}
+
+    Based on the OpenAPI specification and the additional context provided, generate the WAF ACL rules in JSON format. Include only the JSON output, without any additional explanation.
+    """
+    response = get_claude_response(prompt)
+
+    # Try to extract JSON from the response
+    json_match = re.search(r'\{[\s\S]*\}', response)
+    if json_match:
+        try:
+            waf_rules = json.loads(json_match.group(0))
+            return json.dumps(waf_rules, indent=2)  # Return formatted JSON string
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse JSON from the response", "raw_response": response}
+    else:
+        return {"error": "No JSON found in the response", "raw_response": response}
 
 @app.route('/api/generate-rules', methods=['POST'])
 def generate_rules():
     data = request.json
     input_type = data.get('input_type')
-    context = data.get('context', '')
 
-    if input_type == 'arn':
-        api_arn = data.get('api_arn')
-        if not api_arn:
-            return jsonify({"error": "API ARN is required for ARN input type"}), 400
-
-        try:
-            # Extract the API ID from the ARN
-            match = re.match(r'arn:aws:execute-api:([^:]+):(\d+):([^/]+)', api_arn)
-            if not match:
-                return jsonify({"error": "Invalid API ARN format"}), 400
-
-            region, account_id, api_id = match.groups()
-
-            # Initialize the API Gateway client
-            client = boto3.client('apigateway', region_name=region)
-
-            try:
-                # Get the API details
-                api_details = client.get_rest_api(restApiId=api_id)
-
-                # Get the resources for this API
-                resources = client.get_resources(restApiId=api_id)
-
-                # Generate WAF rules based on the API structure with AI enhancement
-                waf_rules = generate_ai_enhanced_waf_rules(api_details, resources)
-
-                return jsonify({
-                    "message": f"Generated AI-enhanced WAF rules for API {api_id}",
-                    "api_name": api_details['name'],
-                    "rules": waf_rules
-                })
-
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'NotFoundException':
-                    return jsonify({"error": f"API with ID {api_id} not found"}), 404
-                else:
-                    raise
-
-        except Exception as e:
-            logger.error(f"Error generating WAF rules: {str(e)}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
-
-    elif input_type == 'openapi':
+    if input_type == 'openapi':
         open_api_spec = data.get('open_api_spec')
+        additional_context = data.get('additional_context', '')
         if not open_api_spec:
             return jsonify({"error": "OpenAPI Specification is required for OpenAPI input type"}), 400
 
         try:
-            waf_rules = generate_rules_from_openapi(open_api_spec)
+            waf_rules = generate_rules_from_openapi(open_api_spec, additional_context)
+            if isinstance(waf_rules, dict) and 'error' in waf_rules:
+                return jsonify(waf_rules), 500
             return jsonify({
-                "message": "Generated AI-enhanced WAF rules from OpenAPI specification",
-                "rules": waf_rules
+                "message": "Generated WAF ACL rules from OpenAPI specification",
+                "rules": json.loads(waf_rules)
             })
         except Exception as e:
             logger.error(f"Error generating WAF rules from OpenAPI spec: {str(e)}", exc_info=True)
             return jsonify({"error": str(e)}), 500
 
     else:
-        return jsonify({"error": "Invalid input type"}), 400
+        return jsonify({"error": "Invalid input type. Only 'openapi' is supported."}), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
