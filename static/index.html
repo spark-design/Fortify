@@ -97,6 +97,9 @@
                 <label>
                     <input type="radio" name="inputType" value="openapi"> Use OpenAPI Specification
                 </label>
+                <label>
+                    <input type="radio" name="inputType" value="list"> List API Gateways
+                </label>
             </div>
 
             <div id="arnInput">
@@ -107,6 +110,13 @@
             <div id="openApiInput" class="hidden">
                 <label for="openApiSpec">OpenAPI Specification:</label>
                 <textarea id="openApiSpec" name="openApiSpec" rows="10" placeholder="Paste your OpenAPI specification here"></textarea>
+            </div>
+
+            <div id="apiListInput" class="hidden">
+                <label for="apiList">Select API Gateway:</label>
+                <select id="apiList" name="apiList">
+                    <option value="">Loading...</option>
+                </select>
             </div>
 
             <label for="apiContext">Additional Context:</label>
@@ -120,20 +130,38 @@
     <script>
         const arnInput = document.getElementById('arnInput');
         const openApiInput = document.getElementById('openApiInput');
+        const apiListInput = document.getElementById('apiListInput');
         const apiForm = document.getElementById('apiForm');
         const resultDiv = document.getElementById('result');
+        const apiList = document.getElementById('apiList');
 
         document.querySelectorAll('input[name="inputType"]').forEach((radio) => {
             radio.addEventListener('change', (e) => {
+                arnInput.classList.add('hidden');
+                openApiInput.classList.add('hidden');
+                apiListInput.classList.add('hidden');
                 if (e.target.value === 'arn') {
                     arnInput.classList.remove('hidden');
-                    openApiInput.classList.add('hidden');
-                } else {
-                    arnInput.classList.add('hidden');
+                } else if (e.target.value === 'openapi') {
                     openApiInput.classList.remove('hidden');
+                } else if (e.target.value === 'list') {
+                    apiListInput.classList.remove('hidden');
+                    fetchApiGateways();
                 }
             });
         });
+
+        async function fetchApiGateways() {
+            try {
+                const response = await axios.get('/api/list-api-gateways');
+                apiList.innerHTML = response.data.apis.map(api =>
+                    `<option value="${api.arn}">${api.name} (${api.arn})</option>`
+                ).join('');
+            } catch (error) {
+                console.error('Error fetching API Gateways:', error);
+                apiList.innerHTML = '<option value="">Error loading APIs</option>';
+            }
+        }
 
         apiForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -142,19 +170,16 @@
             let payload = { input_type: inputType, context: apiContext };
 
             if (inputType === 'arn') {
-                const apiArn = document.getElementById('apiArn').value;
-                if (!apiArn) {
-                    resultDiv.innerHTML = 'Error: API Gateway ARN is required when using ARN input type.';
-                    return;
-                }
-                payload.api_arn = apiArn;
-            } else {
-                const openApiSpec = document.getElementById('openApiSpec').value;
-                if (!openApiSpec) {
-                    resultDiv.innerHTML = 'Error: OpenAPI Specification is required when using OpenAPI input type.';
-                    return;
-                }
-                payload.open_api_spec = openApiSpec;
+                payload.api_arn = document.getElementById('apiArn').value;
+            } else if (inputType === 'openapi') {
+                payload.open_api_spec = document.getElementById('openApiSpec').value;
+            } else if (inputType === 'list') {
+                payload.api_arn = document.getElementById('apiList').value;
+            }
+
+            if (!payload.api_arn && !payload.open_api_spec) {
+                resultDiv.innerHTML = 'Error: API Gateway ARN or OpenAPI Specification is required.';
+                return;
             }
 
             try {

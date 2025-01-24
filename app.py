@@ -92,19 +92,74 @@ def generate_rules_from_openapi(openapi_spec, additional_context):
     else:
         return {"error": "No JSON found in the response", "raw_response": response}
 
+@app.route('/api/list-api-gateways', methods=['GET'])
+def list_api_gateways():
+    try:
+        client = boto3.client('apigateway', region_name=REGION)
+        response = client.get_rest_apis()
+        apis = [{"name": item['name'], "arn": f"arn:aws:execute-api:{REGION}:{boto3.client('sts').get_caller_identity().get('Account')}:{item['id']}"} for item in response['items']]
+        return jsonify({"apis": apis})
+    except Exception as e:
+        logger.error(f"Error listing API Gateways: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/generate-rules', methods=['POST'])
 def generate_rules():
     data = request.json
     input_type = data.get('input_type')
+    api_context = data.get('context', '')
 
-    if input_type == 'openapi':
+    if input_type in ['arn', 'list']:
+        api_arn = data.get('api_arn')
+        if not api_arn:
+            return jsonify({"error": "API Gateway ARN is required"}), 400
+        
+        try:
+            client = boto3.client('apigateway', region_name=REGION)
+            api_id = api_arn.split(':')[-1]
+            
+            # Get all stages for the API
+            stages = client.get_stages(restApiId=api_id)
+            
+            if not stages['item']:
+                return jsonify({"error": "No stages found for this API"}), 400
+            
+            # Use the first available stage
+            stage_name = stages['item'][0]['stageName']
+            
+            try:
+                response = client.get_export(
+                    restApiId=api_id,
+                    stageName=stage_name,
+                    exportType='oas30',
+                    accepts='application/json'
+                )
+                open_api_spec = json.loads(response['body'].read().decode('utf-8'))
+            except client.exceptions.NotFoundException:
+                # If export fails, try to construct a basic OpenAPI spec from the API structure
+                resources = client.get_resources(restApiId=api_id)
+                open_api_spec = construct_basic_openapi(api_id, resources['items'])
+            
+            # Generate rules using the fetched or constructed OpenAPI spec
+            waf_rules = generate_rules_from_openapi(json.dumps(open_api_spec), api_context)
+            if isinstance(waf_rules, dict) and 'error' in waf_rules:
+                return jsonify(waf_rules), 500
+            return jsonify({
+                "message": f"Generated WAF ACL rules for API Gateway: {api_arn}",
+                "rules": json.loads(waf_rules)
+            })
+        except Exception as e:
+            logger.error(f"Error generating WAF rules from API Gateway: {str(e)}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+
+    elif input_type == 'openapi':
         open_api_spec = data.get('open_api_spec')
-        additional_context = data.get('additional_context', '')
         if not open_api_spec:
             return jsonify({"error": "OpenAPI Specification is required for OpenAPI input type"}), 400
 
         try:
-            waf_rules = generate_rules_from_openapi(open_api_spec, additional_context)
+            waf_rules = generate_rules_from_openapi(open_api_spec, api_context)
             if isinstance(waf_rules, dict) and 'error' in waf_rules:
                 return jsonify(waf_rules), 500
             return jsonify({
@@ -116,7 +171,35 @@ def generate_rules():
             return jsonify({"error": str(e)}), 500
 
     else:
-        return jsonify({"error": "Invalid input type. Only 'openapi' is supported."}), 400
+        return jsonify({"error": "Invalid input type. Supported types are 'arn', 'list', and 'openapi'."}), 400
+
+def construct_basic_openapi(api_id, resources):
+    paths = {}
+    for resource in resources:
+        path = resource['path']
+        methods = resource.get('resourceMethods', {})
+        path_item = {}
+        for method in methods:
+            if method != 'OPTIONS':
+                path_item[method.lower()] = {
+                    "responses": {
+                        "200": {
+                            "description": "Successful response"
+                        }
+                    }
+                }
+        if path_item:
+            paths[path] = path_item
+
+    return {
+        "openapi": "3.0.0",
+        "info": {
+            "title": f"API {api_id}",
+            "version": "1.0.0"
+        },
+        "paths": paths
+    }
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
