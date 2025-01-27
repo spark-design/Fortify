@@ -39,7 +39,7 @@
             margin-top: 15px;
             font-weight: bold;
         }
-        input[type="text"], textarea {
+        input[type="text"], textarea, select {
             width: 100%;
             padding: 10px;
             margin-top: 5px;
@@ -66,7 +66,6 @@
             padding: 15px;
             border-radius: 4px;
             border: 1px solid #ddd;
-            white-space: pre-wrap;
             margin-top: 20px;
         }
         .hidden {
@@ -83,10 +82,74 @@
             width: 100px;
             margin-bottom: 20px;
         }
+        .rule-category {
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .category-header {
+            background-color: #f5f5f5;
+            padding: 10px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .category-header h2 {
+            margin: 0;
+        }
+        .category-content {
+            display: none;
+            padding: 10px;
+        }
+        .rule-box {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+        .rule-header {
+            background-color: #f9f9f9;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .rule-details {
+            margin: 0;
+            padding: 10px;
+            background-color: #fff;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+        .select-all {
+            margin-bottom: 10px;
+        }
+        .dropdown-arrow {
+            transition: transform 0.3s ease;
+        }
+        .dropdown-arrow.open {
+            transform: rotate(180deg);
+        }
+        #review-button {
+            float: right;
+        }
+        #review-page {
+            display: none;
+        }
+        .back-button {
+            margin-bottom: 20px;
+        }
+        .clearfix::after {
+            content: "";
+            clear: both;
+            display: table;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" id="main-page">
         <img src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg" alt="Amazon Logo" class="amazon-logo">
         <h1>Fortify WAF Rule Generator</h1>
         <form id="apiForm">
@@ -127,70 +190,231 @@
         <div id="result"></div>
     </div>
 
-    <script>
-        const arnInput = document.getElementById('arnInput');
-        const openApiInput = document.getElementById('openApiInput');
-        const apiListInput = document.getElementById('apiListInput');
-        const apiForm = document.getElementById('apiForm');
-        const resultDiv = document.getElementById('result');
-        const apiList = document.getElementById('apiList');
+    <div class="container" id="review-page" style="display: none;">
+        <h1>Review Selected Rules</h1>
+        <button class="back-button">Back to Rules</button>
+        <div id="selected-rules"></div>
+    </div>
 
-        document.querySelectorAll('input[name="inputType"]').forEach((radio) => {
-            radio.addEventListener('change', (e) => {
-                arnInput.classList.add('hidden');
-                openApiInput.classList.add('hidden');
-                apiListInput.classList.add('hidden');
-                if (e.target.value === 'arn') {
-                    arnInput.classList.remove('hidden');
-                } else if (e.target.value === 'openapi') {
-                    openApiInput.classList.remove('hidden');
-                } else if (e.target.value === 'list') {
-                    apiListInput.classList.remove('hidden');
-                    fetchApiGateways();
-                }
-            });
-        });
+<script>
+    const arnInput = document.getElementById('arnInput');
+    const openApiInput = document.getElementById('openApiInput');
+    const apiListInput = document.getElementById('apiListInput');
+    const apiForm = document.getElementById('apiForm');
+    const resultDiv = document.getElementById('result');
+    const apiList = document.getElementById('apiList');
+    const mainPage = document.getElementById('main-page');
+    const reviewPage = document.getElementById('review-page');
 
-        async function fetchApiGateways() {
-            try {
-                const response = await axios.get('/api/list-api-gateways');
-                apiList.innerHTML = response.data.apis.map(api =>
-                    `<option value="${api.arn}">${api.name} (${api.arn})</option>`
-                ).join('');
-            } catch (error) {
-                console.error('Error fetching API Gateways:', error);
-                apiList.innerHTML = '<option value="">Error loading APIs</option>';
+    document.querySelectorAll('input[name="inputType"]').forEach((radio) => {
+        radio.addEventListener('change', (e) => {
+            arnInput.classList.add('hidden');
+            openApiInput.classList.add('hidden');
+            apiListInput.classList.add('hidden');
+            if (e.target.value === 'arn') {
+                arnInput.classList.remove('hidden');
+            } else if (e.target.value === 'openapi') {
+                openApiInput.classList.remove('hidden');
+            } else if (e.target.value === 'list') {
+                apiListInput.classList.remove('hidden');
+                fetchApiGateways();
             }
+        });
+    });
+
+    async function fetchApiGateways() {
+        try {
+            const response = await axios.get('/api/list-api-gateways');
+            apiList.innerHTML = response.data.apis.map(api =>
+                `<option value="${api.arn}">${api.name} (${api.arn})</option>`
+            ).join('');
+        } catch (error) {
+            console.error('Error fetching API Gateways:', error);
+            apiList.innerHTML = '<option value="">Error loading APIs</option>';
+        }
+    }
+
+    apiForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const inputType = document.querySelector('input[name="inputType"]:checked').value;
+        const apiContext = document.getElementById('apiContext').value;
+        let payload = { input_type: inputType, context: apiContext };
+
+        if (inputType === 'arn') {
+            payload.api_arn = document.getElementById('apiArn').value;
+        } else if (inputType === 'openapi') {
+            payload.open_api_spec = document.getElementById('openApiSpec').value;
+        } else if (inputType === 'list') {
+            payload.api_arn = document.getElementById('apiList').value;
         }
 
-        apiForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const inputType = document.querySelector('input[name="inputType"]:checked').value;
-            const apiContext = document.getElementById('apiContext').value;
-            let payload = { input_type: inputType, context: apiContext };
+        if (!payload.api_arn && !payload.open_api_spec) {
+            resultDiv.innerHTML = 'Error: API Gateway ARN or OpenAPI Specification is required.';
+            return;
+        }
 
-            if (inputType === 'arn') {
-                payload.api_arn = document.getElementById('apiArn').value;
-            } else if (inputType === 'openapi') {
-                payload.open_api_spec = document.getElementById('openApiSpec').value;
-            } else if (inputType === 'list') {
-                payload.api_arn = document.getElementById('apiList').value;
+        try {
+            resultDiv.innerHTML = 'Generating rules...';
+            const response = await axios.post('/api/generate-rules', payload);
+
+            console.log('Full response:', response.data);
+
+            let rules = [];
+            if (response.data && response.data.rules) {
+                if (typeof response.data.rules === 'string') {
+                    try {
+                        rules = JSON.parse(response.data.rules);
+                    } catch (e) {
+                        console.error('Failed to parse rules JSON:', e);
+                        rules = [{ rule: response.data.rules }];
+                    }
+                } else if (Array.isArray(response.data.rules)) {
+                    rules = response.data.rules;
+                } else if (typeof response.data.rules === 'object') {
+                    rules = [response.data.rules];
+                }
             }
 
-            if (!payload.api_arn && !payload.open_api_spec) {
-                resultDiv.innerHTML = 'Error: API Gateway ARN or OpenAPI Specification is required.';
-                return;
+            if (rules.length === 1 && rules[0].Rules && Array.isArray(rules[0].Rules)) {
+                rules = rules[0].Rules;
             }
 
-            try {
-                resultDiv.innerHTML = 'Generating rules...';
-                const response = await axios.post('/api/generate-rules', payload);
-                resultDiv.innerHTML = '<pre>' + JSON.stringify(response.data, null, 2) + '</pre>';
-            } catch (error) {
-                console.error('Full error:', error);
-                resultDiv.innerHTML = 'Error: ' + (error.response?.data?.error || error.message);
+            console.log('Parsed rules:', rules);
+
+            // Clear previous results
+            resultDiv.innerHTML = '';
+
+            // Categorize rules
+            const criticalRules = rules.filter(rule => rule.UrgencyCategory === 'Critical');
+            const recommendedRules = rules.filter(rule => rule.UrgencyCategory === 'Recommended');
+            const additionalRules = rules.filter(rule => rule.UrgencyCategory === 'Additional');
+
+            // Function to create a rule box
+            function createRuleBox(rule, index, category) {
+                return `
+                    <div class="rule-box">
+                        <div class="rule-header">
+                            <strong>${rule.Name}</strong> (Priority: ${rule.Priority})
+                            <input type="checkbox" id="${category}-rule-${index}" name="selected-rules" value="${index}" data-category="${category}">
+                        </div>
+                        <pre class="rule-details">${JSON.stringify(rule, null, 2)}</pre>
+                    </div>
+                `;
             }
-        });
-    </script>
+
+            // Function to display categorized rules
+            function displayCategorizedRules(rules, category) {
+                if (rules.length === 0) {
+                    return ``;
+                }
+
+                return `
+                    <div class="rule-category">
+                        <div class="category-header">
+                            <h2>${category} Rules (${rules.length})</h2>
+                            <span class="dropdown-arrow">▼</span>
+                        </div>
+                        <div class="category-content">
+                            <label class="select-all">
+                                <input type="checkbox" class="select-all-checkbox" data-category="${category}">
+                                Select All ${category} Rules
+                            </label>
+                            ${rules.map((rule, index) => createRuleBox(rule, index, category)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Display all categorized rules
+            resultDiv.innerHTML = `
+                <div class="rule-category">
+                    <div class="category-header">
+                        <h2>All Rules (${rules.length})</h2>
+                        <span class="dropdown-arrow">▼</span>
+                    </div>
+                    <div class="category-content">
+                        <label class="select-all">
+                            <input type="checkbox" id="select-all-rules">
+                            Select All Rules
+                        </label>
+                        ${rules.map((rule, index) => createRuleBox(rule, index, 'all')).join('')}
+                    </div>
+                </div>
+                ${displayCategorizedRules(criticalRules, 'Critical')}
+                ${displayCategorizedRules(recommendedRules, 'Recommended')}
+                ${displayCategorizedRules(additionalRules, 'Additional')}
+                <div class="clearfix">
+                    <button id="review-button">Review</button>
+                </div>
+            `;
+
+            // Add event listeners for dropdowns
+            document.querySelectorAll('.category-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const content = header.nextElementSibling;
+                    const arrow = header.querySelector('.dropdown-arrow');
+                    content.style.display = content.style.display === 'block' ? 'none' : 'block';
+                    arrow.classList.toggle('open');
+                });
+            });
+
+            // Add event listeners for select all checkboxes
+            document.querySelectorAll('.select-all-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => {
+                    const category = e.target.dataset.category;
+                    document.querySelectorAll(`input[name="selected-rules"][data-category="${category}"]`)
+                        .forEach(ruleCheckbox => ruleCheckbox.checked = e.target.checked);
+                });
+            });
+
+            // Add event listener for select all rules
+            document.getElementById('select-all-rules').addEventListener('change', (e) => {
+                const isChecked = e.target.checked;
+                // Update all category checkboxes
+                document.querySelectorAll('.select-all-checkbox')
+                    .forEach(categoryCheckbox => {
+                        categoryCheckbox.checked = isChecked;
+                        // Trigger the change event on category checkboxes
+                        categoryCheckbox.dispatchEvent(new Event('change'));
+                    });
+            });
+
+            // Add event listener for the "Review" button
+            document.getElementById('review-button').addEventListener('click', () => {
+                const selectedRules = Array.from(document.querySelectorAll('input[name="selected-rules"]:checked:not([data-category="all"])'))
+                    .map(checkbox => rules[parseInt(checkbox.value)]);
+                console.log('Selected rules:', selectedRules);
+
+                // Show review page
+                mainPage.style.display = 'none';
+                reviewPage.style.display = 'block';
+
+                // Display selected rules
+                document.getElementById('selected-rules').innerHTML = `
+                    <h2>Selected Rules (${selectedRules.length})</h2>
+                    ${selectedRules.map(rule => `
+                        <div class="rule-box">
+                            <div class="rule-header">
+                                <strong>${rule.Name}</strong> (Priority: ${rule.Priority})
+                            </div>
+                            <pre class="rule-details">${JSON.stringify(rule, null, 2)}</pre>
+                        </div>
+                    `).join('')}
+                `;
+            });
+
+        } catch (error) {
+            console.error('Full error:', error);
+            resultDiv.innerHTML = 'Error: ' + (error.response?.data?.error || error.message);
+        }
+    });
+
+    // Add event listener for the "Back to Rules" button
+    document.querySelector('.back-button').addEventListener('click', () => {
+        mainPage.style.display = 'block';
+        reviewPage.style.display = 'none';
+    });
+</script>
+
 </body>
 </html>

@@ -14,7 +14,7 @@ MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"  # Updated to use the 
 
 def get_claude_response(prompt):
     bedrock_runtime = boto3.client('bedrock-runtime', region_name=REGION)
-    
+
     body = json.dumps({
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 2000,
@@ -48,7 +48,6 @@ def generate_rules_from_openapi(openapi_spec, additional_context):
     prompt = f"""
     You are a security engineer that works at AWS. Your job is to create me a WAF ACL rules in JSON based upon a OpenAPI configuration and best practices. The most important rules that should be added as a baseline for all generated rules are the baseline rule groups, IP reputation rule group and the Rate based rule group. Do not add rules other than what are listed as part of the baseline, IP reputation, and rate-based group. The output should also be based on any compliance standards or tech stacks that are relevant to the API. All rules should follow a standard naming scheme. For each group, select the top most 3 rules that are important to the given OpenAPI context. Each rule should follow the following format:
 
-
     {{
         "Name": "CompanyName-RuleName",
         "Priority": integer,
@@ -66,8 +65,14 @@ def generate_rules_from_openapi(openapi_spec, additional_context):
         "SampledRequestsEnabled": boolean,
         "CloudWatchMetricsEnabled": boolean,
         "MetricName": "CompanyName-RuleName"
-        }}
+        }},
+        "UrgencyCategory": string (one of: "Critical", "Recommended", "Additional")
     }}
+
+    Categorize each rule based on its urgency:
+    - Critical: Rules that are essential for immediate security and should be implemented without delay.
+    - Recommended: Important rules that significantly enhance security but may have some flexibility in implementation timing.
+    - Additional: Rules that provide extra layers of security but are not urgent.
 
     Here's the OpenAPI specification to analyze:
 
@@ -77,7 +82,7 @@ def generate_rules_from_openapi(openapi_spec, additional_context):
 
     {additional_context}
 
-    Based on the OpenAPI specification and the additional context provided, generate the WAF ACL rules in JSON format. Include only the JSON output, without any additional explanation.
+    Based on the OpenAPI specification and the additional context provided, generate the WAF ACL rules in JSON format. Include only the JSON output, without any additional explanation. Ensure each rule has an "UrgencyCategory" field.
     """
     response = get_claude_response(prompt)
 
@@ -114,20 +119,20 @@ def generate_rules():
         api_arn = data.get('api_arn')
         if not api_arn:
             return jsonify({"error": "API Gateway ARN is required"}), 400
-        
+
         try:
             client = boto3.client('apigateway', region_name=REGION)
             api_id = api_arn.split(':')[-1]
-            
+
             # Get all stages for the API
             stages = client.get_stages(restApiId=api_id)
-            
+
             if not stages['item']:
                 return jsonify({"error": "No stages found for this API"}), 400
-            
+
             # Use the first available stage
             stage_name = stages['item'][0]['stageName']
-            
+
             try:
                 response = client.get_export(
                     restApiId=api_id,
@@ -140,7 +145,7 @@ def generate_rules():
                 # If export fails, try to construct a basic OpenAPI spec from the API structure
                 resources = client.get_resources(restApiId=api_id)
                 open_api_spec = construct_basic_openapi(api_id, resources['items'])
-            
+
             # Generate rules using the fetched or constructed OpenAPI spec
             waf_rules = generate_rules_from_openapi(json.dumps(open_api_spec), api_context)
             if isinstance(waf_rules, dict) and 'error' in waf_rules:
